@@ -42,6 +42,7 @@ public class RegionRenderer
 	
 	public static final short BASE_HEIGHT = 64;
 	
+	public final int maxHeight;	
 	public final boolean debug;
 	public final ColorMap colorMap;
 	public final int air16Color; // Color of 16 air blocks stacked
@@ -51,11 +52,12 @@ public class RegionRenderer
 	 */
 	private int shadeOpacityCutoff = 0x20; 
 	
-	public RegionRenderer( ColorMap colorMap, boolean debug ) {
+	public RegionRenderer( ColorMap colorMap, boolean debug, int maxHeight ) {
 		if( colorMap == null ) throw new RuntimeException("colorMap cannot be null");
 		this.colorMap = colorMap;
 		this.air16Color = Color.overlay( 0, colorMap.getColor(0), 16 );
 		this.debug = debug;
+		this.maxHeight = maxHeight;
 	}
 	
 	/**
@@ -184,13 +186,32 @@ public class RegionRenderer
 						for( int x=0; x<16; ++x ) {
 							int pixelColor = 0;
 							short pixelHeight = 0;
+							short maxTransparent = 256;
+							
+							if (maxHeight < 256) {
+								maxTransparent = 0;
+								for( int s=0; s<maxSectionCount; ++s ) {
+									if( usedSections[s] ) {
+										short[] blockIds  = sectionBlockIds[s];
+										byte[]  blockData = sectionBlockData[s];
+										for( int idx=z*16+x, y=0, absY=s*16; y<16 && absY<maxHeight; ++y, idx+=256, ++absY ) {
+											final short blockId    =  blockIds[idx];
+											final byte  blockDatum = blockData[idx];
+											final int blockColor = colorMap.getColor( blockId&0xFFFF, blockDatum );
+											if( Color.alpha(blockColor) < shadeOpacityCutoff  ) {
+												maxTransparent = (short)absY;
+											}
+										}
+									}
+								}
+							}
 							
 							for( int s=0; s<maxSectionCount; ++s ) {
 								if( usedSections[s] ) {
 									short[] blockIds  = sectionBlockIds[s];
 									byte[]  blockData = sectionBlockData[s];
 									
-									for( int idx=z*16+x, y=0, absY=s*16; y<16; ++y, idx+=256, ++absY ) {
+									for( int idx=z*16+x, y=0, absY=s*16; y<16 && absY<maxTransparent; ++y, idx+=256, ++absY ) {
 										final short blockId    =  blockIds[idx];
 										final byte  blockDatum = blockData[idx];
 										final int blockColor = colorMap.getColor( blockId&0xFFFF, blockDatum );
@@ -350,6 +371,7 @@ public class RegionRenderer
 		"  -color-map <file>  ; load a custom color map from the specified file\n" +
 		"  -create-tile-html  ; generate tiles.html in the output directory\n" +
 		"  -create-image-tree ; generate a PicGrid-compatible image tree\n" +
+		"  -height <n>        ; only render below <n>\n" +
 		"\n" +
 		"Input files may be 'region/' directories or individual '.mca' files.\n" +
 		"\n" +
@@ -387,6 +409,8 @@ public class RegionRenderer
 					m.createImageTree = Boolean.TRUE;
 				} else if( "-color-map".equals(args[i]) ) {
 					m.colorMapFile = new File(args[++i]);
+				} else if( "-height".equals(args[i]) ) {
+					m.maxHeight = Integer.parseInt(args[++i]);
 				} else if( "-h".equals(args[i]) || "-?".equals(args[i]) || "--help".equals(args[i]) || "-help".equals(args[i]) ) {
 					m.printHelpAndExit = true;
 				} else {
@@ -415,6 +439,7 @@ public class RegionRenderer
 		ArrayList<File> regionFiles = new ArrayList<File>();
 		Boolean createTileHtml = null;
 		Boolean createImageTree = null;
+		int maxHeight = 256;
 		
 		String errorMessage = null;
 		
@@ -445,7 +470,7 @@ public class RegionRenderer
 			        .loadDefault() : ColorMap.load(colorMapFile);
 			
 			RegionMap rm = RegionMap.load(regionFiles);
-			RegionRenderer rr = new RegionRenderer(colorMap, debug);
+			RegionRenderer rr = new RegionRenderer(colorMap, debug, maxHeight);
 			
 			rr.renderAll(rm, outputDir, forceReRender);
 			if( debug ) {
